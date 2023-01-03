@@ -6,7 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anvil-region = "0.8.1"
+# unsure of which crate to use, so at the moment trying a few?
+anvil-region = "0.8.1" # unsure if going to use
 fastnbt = "2.3.2"
-fastanvil = "0.26.0"
-simple-anvil = "0.3.3"
+fastanvil = "0.26.0" # for read chunk data
+simple-anvil = "0.3.3" # unsure if going to use
+png = "0.17.7"
