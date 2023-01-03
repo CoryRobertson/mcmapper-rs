@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::File;
+use std::hash::Hash;
 use std::io::BufWriter;
 use std::num::ParseIntError;
 use fastanvil::{Block, Chunk, CurrentJavaChunk};
@@ -45,18 +46,54 @@ fn main() {
     println!("{:?}",chunk.block(4,62,15).unwrap()); // this block should be an oak log if map is unchanged
 
     let list = get_region_files("test/region");
-
+    let texture_list = get_texture_list();
     for region_file in &list {
         println!("{}", region_file);
     }
 
+    region_to_image(&list, &texture_list);
 
-    vec_to_image(&list);
+    // for texture in texture_list {
+    //     println!("Texture name: \"{}\", {:?}",texture.0, texture.1);
+    // }
+
 
 }
 
-fn vec_to_image(list: &Vec<RegionFile>) {
+type TextureListMap = HashMap<String,File>;
 
+/// Returns a list of all the filenames in the assets folder.
+fn get_texture_list() -> TextureListMap {
+    let dir = fs::read_dir("assets").unwrap();
+    let list: Vec<String> = dir.into_iter()
+        .map(|file_in_dir| {
+            match file_in_dir {
+                Ok(f) => { Some(f) }
+                Err(_) => { None }
+            }
+        })
+        .filter_map(|file_option| file_option)
+        .filter_map( |file_entry| {
+            match file_entry.file_name().to_str() {
+                None => { None }
+                Some(str) => { Some(str.to_string()) }
+            }
+        })
+        .collect();
+
+    let mut map: TextureListMap = HashMap::new();
+
+    for file_name in list {
+        let file = File::open(format!("assets/{}", file_name)).unwrap();
+        let texture_name = file_name.split('.').next().unwrap(); // take the first thing that appears before the file extension
+        let minecraft_texture_name = format!("minecraft:{}", texture_name);
+        let texture = read_texture_into_array(&file);
+        map.insert(minecraft_texture_name,file);
+    }
+    map
+}
+
+fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
     // convert this to a for loop eventually
     let file = &list.get(6).unwrap().file;
     let mut region = fastanvil::Region::from_stream(file).unwrap();
@@ -84,7 +121,22 @@ fn vec_to_image(list: &Vec<RegionFile>) {
     println!("{:?}", flattened_blocks.get(&(4 as usize,15 as usize)));
     // TODO: make this output an image based on this block, then make it stitch this image together with blocks
 
-    let mut image_date: [u8 ; 1024] = [0 ; 1024];
+    let mut image_data: [u8 ; 1024] = [0 ; 1024];
+
+    let mut index = 0;
+    println!("{:?}",texture_list);
+    println!("flat block len: {}",flattened_blocks.len());
+    for block in flattened_blocks {
+        let x = block.0.0;
+        let y = block.0.1;
+        let mc_block = &block.1;
+        
+        image_data[index] = 1;
+
+        index += 4;
+    }
+
+    println!("{:?}", image_data);
 
     let file = File::create("./test.png").unwrap();
     let ref mut w = BufWriter::new(file);
@@ -162,4 +214,20 @@ fn get_region_files(path: &str) -> Vec<(RegionFile)> {
         .collect();
 
     list
+}
+
+fn read_texture_into_array(file: &File) -> Vec<u8> {
+    println!("{:?}", file);
+    let decoder = png::Decoder::new(file);
+    let mut reader = decoder.read_info().unwrap();
+    // Allocate the output buffer.
+    let mut buf = vec![0; reader.output_buffer_size()];
+    // Read the next frame. An APNG might contain multiple frames.
+    let info = reader.next_frame(&mut buf).unwrap();
+    // Grab the bytes of the image.
+    let bytes = &buf[..info.buffer_size()];
+    // Inspect more details of the last read frame.
+    let in_animation = reader.info().frame_control.is_some();
+
+    bytes.to_vec()
 }
