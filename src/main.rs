@@ -22,11 +22,12 @@ let region = Region::from_file("test/region/r.0.0.mca".parse().unwrap());
 
 use fastanvil::{Block, Chunk, CurrentJavaChunk};
 use fastnbt::from_bytes;
-use image::{DynamicImage, GenericImageView, ImageBuffer, Pixel, RgbImage};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Pixel, RgbImage, imageops};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::File;
+use image::imageops::FilterType;
 
 fn main() {
     let file = File::open("test/region/r.0.0.mca").unwrap();
@@ -36,7 +37,7 @@ fn main() {
     let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap(); // chunk conversion from bytes? should probably just be one line from the data variable later
 
     // x coord is a range of 0..16 in the region, so is z coord, y coord is the real y coordinate of the block in the game.
-    println!("{:?}", chunk.block(4, 62, 15).unwrap()); // this block should be an oak log if map is unchanged
+    // println!("{:?}", chunk.block(4, 62, 15).unwrap()); // this block should be an oak log if map is unchanged
 
     let list = get_region_files("test/region");
     let texture_list = get_texture_list();
@@ -54,17 +55,25 @@ fn main() {
     let mut index = 1;
     for region in &list {
         let region_image = region_to_image(&region, &texture_list);
-        region_image
-            .save(region_file_to_file_name(&region))
-            .unwrap();
+        // region_image
+        //     .save(region_file_to_file_name(&region))
+        //     .unwrap();
         region_images.push(RegionImage{ coordinate: region.coordinate, image: region_image });
-        println!("regions processed: {}", (index / list.len()));
+        println!("Regions processed: {}, out of: {}", index, list.len());
         index += 1;
     }
 
-    println!("stitching regions");
-    stitch_region_images(region_images);
+    println!("Stitching regions");
+    let full_map_image = stitch_region_images(region_images);
+    full_map_image.save("./output/all_regions_massive.png").unwrap();
+    let full_map_width = full_map_image.width();
+    let full_map_height = full_map_image.height();
 
+    println!("Finished stitching images, scaling image now...");
+
+    let scaled_full_map_image = imageops::resize(&full_map_image, full_map_width / 10, full_map_height / 10, FilterType::Nearest);
+
+    scaled_full_map_image.save("./output/all_regions_tenth.png").unwrap();
 
 }
 
@@ -104,36 +113,39 @@ fn get_texture_list() -> TextureListMap {
     map
 }
 
-fn stitch_region_images(list: Vec<RegionImage>) {
+fn stitch_region_images(list: Vec<RegionImage>) -> RgbImage {
+
+    let region_image_size = 8192;
 
     let min_modifier_x = &list.iter().map(|ri| ri.coordinate.0).min().unwrap();
     let min_modifier_y = &list.iter().map(|ri| ri.coordinate.1).min().unwrap();
 
-    let min_coef_x = (min_modifier_x * 4096).abs();
-    let min_coef_y = (min_modifier_y * 4096).abs();
+    let min_coef_x = (min_modifier_x * region_image_size).abs();
+    let min_coef_y = (min_modifier_y * region_image_size).abs();
 
-
-    let width = 4096 * list.len();
-    let height = 4096 * list.len();
+    let width = region_image_size * min_modifier_x.abs() as i32;
+    let height = region_image_size * min_modifier_y.abs() as i32;
 
     let mut img: RgbImage = ImageBuffer::new(width as u32, height as u32);
 
     for region in list {
-        let region_x = ((region.coordinate.0 * 4096) + min_coef_x) as usize;
-        let region_y = ((region.coordinate.1 * 4096) + min_coef_y) as usize;
+        let region_x = ((region.coordinate.0 * region_image_size) + min_coef_x) as usize;
+        let region_y = ((region.coordinate.1 * region_image_size) + min_coef_y) as usize;
         let pixels = region.image.enumerate_pixels();
 
         for pixel in pixels {
             let color = pixel.2.to_rgb();
             let x = pixel.0 as usize;
             let y = pixel.1 as usize;
-            img.put_pixel((region_x + x) as u32, (region_y + y) as u32, color);
+            let pixel_x = (region_x + x) as u32;
+            let pixel_y = (region_y + y) as u32;
+            img.put_pixel(pixel_x, pixel_y, color);
         }
 
     }
 
-    img.save("output2.png").unwrap();
-
+    // img.save("all_regions_massive.png").unwrap();
+    img
 }
 
 fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) -> RgbImage {
@@ -159,7 +171,7 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
         }
     }
 
-    let mut img: RgbImage = ImageBuffer::new(4096, 4096); // 4096 = 16 chunk images * 16 chunks total
+    let mut img: RgbImage = ImageBuffer::new(8192, 8192); // 4096 = 16 chunk images * 16 chunks total
 
     for chunk in images_of_chunks {
         let block_x = chunk.1 * 256;
@@ -170,7 +182,9 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
             let color = pixel.2.to_rgb();
             let x = pixel.0 as usize;
             let y = pixel.1 as usize;
-            img.put_pixel((block_x + x) as u32, (block_y + y) as u32, color);
+            let pixel_x = (block_x + x) as u32;
+            let pixel_y = (block_y + y) as u32;
+            img.put_pixel(pixel_x, pixel_y, color);
         }
     }
 
