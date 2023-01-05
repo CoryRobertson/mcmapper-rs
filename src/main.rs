@@ -30,7 +30,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use fastanvil::{Block, Chunk, CurrentJavaChunk};
 use fastnbt::from_bytes;
-use image::{ImageBuffer, RgbaImage, RgbImage};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Pixel, Pixels, Rgb, RgbaImage, RgbImage};
 
 fn main() {
 
@@ -63,7 +63,7 @@ fn main() {
 
 }
 
-type TextureListMap = HashMap<String,Vec<u8>>;
+type TextureListMap = HashMap<String,DynamicImage>;
 
 /// Returns a list of all the filenames in the assets folder.
 fn get_texture_list() -> TextureListMap {
@@ -87,10 +87,11 @@ fn get_texture_list() -> TextureListMap {
     let mut map: TextureListMap = HashMap::new();
 
     for file_name in list {
-        let file = File::open(format!("assets/{}", file_name)).unwrap();
+        let path = format!("assets/{}", file_name);
+        // let file = File::open(path).unwrap();
         let texture_name = file_name.split('.').next().unwrap(); // take the first thing that appears before the file extension
         let minecraft_texture_name = format!("minecraft:{}", texture_name);
-        let image_data = read_texture_into_array(file);
+        let image_data = read_texture_into_array(path);
         map.insert(minecraft_texture_name,image_data);
     }
     map
@@ -104,7 +105,6 @@ fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
     let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
     let mut flattened_blocks: HashMap<(usize, usize),Block> = HashMap::new();
     // go through every coordinate in the given chunk, and find the highest block that is not air, add it to hash map.
-    // FIXME: i dont think this works the way it is intended?
     for x in 0..16 {
         for z in 0..16 {
             for y in (0..319).rev() { // go from top to bottom, cause top of map is most likely air and we stop when we find something.
@@ -121,74 +121,30 @@ fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
         }
     }
 
-    // let mut index = 0;
-    // for block in &flattened_blocks {
-    //     let x = block.0.0;
-    //     let y = block.0.1;
-    //     let mc_block = &block.1;
-    //
-    //
-    //     print!("{},", mc_block.name());
-    //
-    //     if index % 16 == 0 {
-    //         println!("");
-    //     }
-    //
-    //     index += 1;
-    // }
-
     println!("len of flat blocks: {}", flattened_blocks.len());
     println!("{:?}", flattened_blocks.get(&(4 as usize,15 as usize)));
-    // TODO: make this output an image based on this block, then make it stitch this image together with blocks
-
-    let mut image_data: [u8 ; 262144] = [0 ; 262144]; // 16^2 for area of a block times how many blocks we are storing, in this case one chunk. so 16^2*16^2 = 65536, times 4 for RGBA
-
-    let mut index = 0;
-    // println!("{:?}",texture_list);
-    // panic!("");
+    let mut img: RgbImage = ImageBuffer::new(256,256);
     println!("flat block len: {}",flattened_blocks.len());
     for block in flattened_blocks {
-        let x = block.0.0;
-        let y = block.0.1;
+        let block_x = block.0.0 * 16;
+        let block_y = block.0.1 * 16;
         let mc_block = &block.1;
         let texture = match texture_list.get(mc_block.name()) {
             None => {
-                println!("could not find texture for: {:?}, using default instead", mc_block);
-                let out: [u8 ; 1024] = [0; 1024];
-                out.to_vec()
+                panic!("ERROR BLOCK TEXTURE NOT FOUND FOR BLOCK: {:?}", mc_block);
             }
             Some(tex) => {
-                // FIXME: eventually remove this clone and instead have the none result use a reference instead.
-                //println!("found texture for: {:?}", mc_block);
-                //println!("tex len: {}", tex.len());
-                tex.clone()
+                tex
             }
         };
-        // image_data[index] = 1;
-        for a in 0..1024 {
-            // println!("{} : {}", a, texture.get(a).unwrap());
-            image_data[index + a] = *texture.get(a).unwrap();
+        for pixel in texture.pixels() {
+            let color = pixel.2.to_rgb();
+            let x = pixel.0 as usize;
+            let y =  pixel.1 as usize;
+            img.put_pixel((block_x + x) as u32, (block_y + y) as u32, color);
         }
-
-
-        index += 1024;
     }
-
-    // let file = File::create("./test.png").unwrap();
-    // let ref mut w = BufWriter::new(file);
-    // let mut encoder = png::Encoder::new(w, 256, 256); // Width is 2 pixels and height is 1.
-    // encoder.set_color(png::ColorType::Rgba);
-    // encoder.set_depth(png::BitDepth::Eight);
-    // // encoder.set_source_gamma(png::ScaledFloat::from_scaled(45455)); // 1.0 / 2.2, scaled by 100000
-    // let mut writer = encoder.write_header().unwrap();
-    //
-    // //println!("{:?}", image_data);
-    // writer.write_image_data(&image_data).unwrap(); // Save
-
-    // let img: RgbImage = ImageBuffer::new(256,256);
-    image::save_buffer("text.png", &image_data, 256, 256, image::ColorType::Rgba8).unwrap();
-
-
+    img.save("test.png").unwrap();
 }
 
 #[derive(Debug)]
@@ -248,18 +204,22 @@ fn get_region_files(path: &str) -> Vec<RegionFile> {
     list
 }
 
-fn read_texture_into_array(file: File) -> Vec<u8> {
-    //println!("{:?}", file);
-    let decoder = png::Decoder::new(file);
-    let mut reader = decoder.read_info().unwrap();
-    // Allocate the output buffer.
-    let mut buf = vec![0; reader.output_buffer_size()];
-    // Read the next frame. An APNG might contain multiple frames.
-    let info = reader.next_frame(&mut buf).unwrap();
-    // Grab the bytes of the image.
-    let bytes = &buf[..info.buffer_size()];
-    // Inspect more details of the last read frame.
-    let in_animation = reader.info().frame_control.is_some();
+fn read_texture_into_array(file: String) -> DynamicImage {
+    // //println!("{:?}", file);
+    // let decoder = png::Decoder::new(file);
+    // let mut reader = decoder.read_info().unwrap();
+    // // Allocate the output buffer.
+    // let mut buf = vec![0; reader.output_buffer_size()];
+    // // Read the next frame. An APNG might contain multiple frames.
+    // let info = reader.next_frame(&mut buf).unwrap();
+    // // Grab the bytes of the image.
+    // let bytes = &buf[..info.buffer_size()];
+    // // Inspect more details of the last read frame.
+    // let in_animation = reader.info().frame_control.is_some();
+    //
+    // bytes.to_vec()
 
-    bytes.to_vec()
+    let img = image::open(file).unwrap();
+    img
+
 }
