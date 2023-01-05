@@ -49,7 +49,7 @@ fn main() {
         });
 
     println!("Stitching regions");
-    let full_map_image = stitch_region_images(&*region_images.lock().unwrap());
+    let full_map_image = stitch_region_images(&region_images.lock().unwrap());
     full_map_image
         .save("./output/all_regions_massive.png")
         .unwrap();
@@ -58,6 +58,7 @@ fn main() {
 
     println!("Finished stitching images, scaling image now...");
 
+    // TODO: eventually crop this image by finding its bounding box of non black pixels
     let scaled_full_map_image = imageops::resize(
         &full_map_image,
         full_map_width / 10,
