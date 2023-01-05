@@ -40,17 +40,36 @@ fn main() {
 
     let list = get_region_files("test/region");
     let texture_list = get_texture_list();
-    // for region_file in &list {
-    //     println!("{}", region_file);
-    // }
+    for region_file in &list {
+        println!("{}", region_file);
+    }
     println!("Length of region file list: {}", list.len());
 
-    println!(
-        "Minecraft sand texture: {:?}",
-        texture_list.get("minecraft:sand")
-    );
+    // let six = list.get(0).unwrap();
+    // let region_6 = region_to_image(&six, &texture_list);
+    // region_6.save("out.png").unwrap();
+    // let seven = list.get(7).unwrap();
+    // let region_7 = region_to_image(&seven, &texture_list);
+    let mut region_images: Vec<RegionImage> = vec![];
+    let mut index = 1;
+    for region in &list {
+        let region_image = region_to_image(&region, &texture_list);
+        region_image
+            .save(region_file_to_file_name(&region))
+            .unwrap();
+        region_images.push(RegionImage{ coordinate: region.coordinate, image: region_image });
+        println!("regions processed: {}", (index / list.len()));
+        index += 1;
+    }
 
-    region_to_image(list.get(6).unwrap(), &texture_list);
+    println!("stitching regions");
+    stitch_region_images(region_images);
+
+
+}
+
+fn region_file_to_file_name(region: &RegionFile) -> String {
+    format!("r.{}-{}.png", region.coordinate.0, region.coordinate.1)
 }
 
 type TextureListMap = HashMap<String, DynamicImage>;
@@ -85,18 +104,49 @@ fn get_texture_list() -> TextureListMap {
     map
 }
 
-fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) {
+fn stitch_region_images(list: Vec<RegionImage>) {
+
+    let min_modifier_x = &list.iter().map(|ri| ri.coordinate.0).min().unwrap();
+    let min_modifier_y = &list.iter().map(|ri| ri.coordinate.1).min().unwrap();
+
+    let min_coef_x = (min_modifier_x * 4096).abs();
+    let min_coef_y = (min_modifier_y * 4096).abs();
+
+
+    let width = 4096 * list.len();
+    let height = 4096 * list.len();
+
+    let mut img: RgbImage = ImageBuffer::new(width as u32, height as u32);
+
+    for region in list {
+        let region_x = ((region.coordinate.0 * 4096) + min_coef_x) as usize;
+        let region_y = ((region.coordinate.1 * 4096) + min_coef_y) as usize;
+        let pixels = region.image.enumerate_pixels();
+
+        for pixel in pixels {
+            let color = pixel.2.to_rgb();
+            let x = pixel.0 as usize;
+            let y = pixel.1 as usize;
+            img.put_pixel((region_x + x) as u32, (region_y + y) as u32, color);
+        }
+
+    }
+
+    img.save("output2.png").unwrap();
+
+}
+
+fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) -> RgbImage {
     // convert this to a for loop eventually
     // let region_selected = &list.get(6).unwrap();
     let file = &region_selected.file;
     let region_coords = &region_selected.coordinate;
-    let file_name = format!("r.{}-{}.png", region_coords.0, region_coords.1);
 
     let mut region = fastanvil::Region::from_stream(file).unwrap();
     let mut images_of_chunks: Vec<(RgbImage, usize, usize)> = vec![]; // image,x,y
 
-    for chunk_x in 0..16 {
-        for chunk_y in 0..16 {
+    for chunk_x in 0..32 {
+        for chunk_y in 0..32 {
             let data = region.read_chunk(chunk_x, chunk_y).unwrap().unwrap();
             let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
             images_of_chunks.push(chunk_to_image(
@@ -109,7 +159,7 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
         }
     }
 
-    let mut img = ImageBuffer::new(4096, 4096); // 4096 = 16 chunk images * 16 chunks total
+    let mut img: RgbImage = ImageBuffer::new(4096, 4096); // 4096 = 16 chunk images * 16 chunks total
 
     for chunk in images_of_chunks {
         let block_x = chunk.1 * 256;
@@ -124,8 +174,10 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
         }
     }
 
-    img.save(file_name).unwrap();
+    //img.save(file_name).unwrap();
+
     // chunk_to_image(chunk,15,0, texture_list, region_coords);
+    img
 }
 
 /// convert a chunk to an image, the chunk x and chunk y are purely for file naming only.
@@ -137,8 +189,7 @@ fn chunk_to_image(
     _region_coords: &ChunkCoordinate,
 ) -> (RgbImage, usize, usize) {
     let mut flattened_blocks: HashMap<(usize, usize), Block> = HashMap::new();
-    // let file_name = format!("./output/r.{}_{}-{}.png",region_coords,chunk_x,chunk_y);
-    // go through every coordinate in the given chunk, and find the highest block that is not air, add it to hash map.
+
     for x in 0..16 {
         for z in 0..16 {
             for y in (0..319).rev() {
@@ -166,7 +217,9 @@ fn chunk_to_image(
         let mc_block = &block.1;
         let texture = match texture_list.get(mc_block.name()) {
             None => {
-                panic!("ERROR BLOCK TEXTURE NOT FOUND FOR BLOCK: {:?}", mc_block);
+                // panic!("ERROR BLOCK TEXTURE NOT FOUND FOR BLOCK: {:?}", mc_block);
+                //println!("no texture for: {:?}, using anvil", mc_block);
+                texture_list.get("minecraft:anvil").unwrap()
             }
             Some(tex) => tex,
         };
@@ -174,14 +227,21 @@ fn chunk_to_image(
             let color = pixel.2.to_rgb();
             let x = pixel.0 as usize;
             let y = pixel.1 as usize;
-            img.put_pixel((block_x + x) as u32, (block_y + y) as u32, color);
+            let pixel_x = (block_x + x) as u32;
+            let pixel_y = (block_y + y) as u32;
+
+            if pixel_x >= 256 || pixel_y >= 256 {
+                panic!("pixel x or y was >= 256: {:?}", mc_block);
+            }
+
+            img.put_pixel(pixel_x, pixel_y, color);
         }
     }
     //img.save(file_name).unwrap();
     (img, chunk_x, chunk_y)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 struct ChunkCoordinate(i32, i32);
 
 #[derive(Debug)]
@@ -189,6 +249,13 @@ struct RegionFile {
     coordinate: ChunkCoordinate,
     file: File,
 }
+
+#[derive(Debug)]
+struct RegionImage {
+    coordinate: ChunkCoordinate,
+    image: RgbImage,
+}
+
 
 impl Display for ChunkCoordinate {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
