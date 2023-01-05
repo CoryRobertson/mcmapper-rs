@@ -99,11 +99,28 @@ fn get_texture_list() -> TextureListMap {
 
 fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
     // convert this to a for loop eventually
-    let file = &list.get(6).unwrap().file;
+    let region_selected = &list.get(6).unwrap();
+    let file = &region_selected.file;
+    let region_coords = &region_selected.coordinate;
+
     let mut region = fastanvil::Region::from_stream(file).unwrap();
+
     let data = region.read_chunk(15, 0).unwrap().unwrap();
     let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
+
+    // for chunk_x in 0..16 {
+    //     for chunk_y in 0..16 {
+    //
+    //     }
+    // }
+
+    chunk_to_image(chunk,15,0, texture_list, region_coords);
+}
+
+/// convert a chunk to an image, the chunk x and chunk y are purely for file naming only.
+fn chunk_to_image(chunk: CurrentJavaChunk, chunk_x: usize, chunk_y: usize, texture_list: &TextureListMap, region_coords: &ChunkCoordinate) {
     let mut flattened_blocks: HashMap<(usize, usize),Block> = HashMap::new();
+    let file_name = format!("r.{}_{}-{}.png",region_coords,chunk_x,chunk_y);
     // go through every coordinate in the given chunk, and find the highest block that is not air, add it to hash map.
     for x in 0..16 {
         for z in 0..16 {
@@ -121,10 +138,10 @@ fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
         }
     }
 
-    println!("len of flat blocks: {}", flattened_blocks.len());
-    println!("{:?}", flattened_blocks.get(&(4 as usize,15 as usize)));
+    // println!("len of flat blocks: {}", flattened_blocks.len());
+    // println!("{:?}", flattened_blocks.get(&(4 as usize,15 as usize)));
     let mut img: RgbImage = ImageBuffer::new(256,256);
-    println!("flat block len: {}",flattened_blocks.len());
+    // println!("flat block len: {}",flattened_blocks.len());
     for block in flattened_blocks {
         let block_x = block.0.0 * 16;
         let block_y = block.0.1 * 16;
@@ -144,7 +161,7 @@ fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
             img.put_pixel((block_x + x) as u32, (block_y + y) as u32, color);
         }
     }
-    img.save("test.png").unwrap();
+    img.save(file_name).unwrap();
 }
 
 #[derive(Debug)]
