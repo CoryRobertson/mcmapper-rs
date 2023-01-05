@@ -1,44 +1,13 @@
-/*
-// --fastanvil solution--
-
- let file = File::open("test/region/r.0.0.mca").unwrap();
-    let mut region = fastanvil::Region::from_stream(file).unwrap();
-    let data = region.read_chunk(13, 3).unwrap().unwrap();
-
-    let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
-
-    println!("{:?}",chunk.block(4,62,15).unwrap());
-
-*/
-
-/*
-// --simpleanvil solution--
-
-let region = Region::from_file("test/region/r.0.0.mca".parse().unwrap());
-    let chunk = region.get_chunk(13,3).unwrap();
-    println!("{}", chunk.get_block(4,62,15));
-
- */
-
 use fastanvil::{Block, Chunk, CurrentJavaChunk};
 use fastnbt::from_bytes;
-use image::{DynamicImage, GenericImageView, ImageBuffer, Pixel, RgbImage, imageops};
+use image::imageops::FilterType;
+use image::{imageops, DynamicImage, GenericImageView, ImageBuffer, Pixel, RgbImage};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::File;
-use image::imageops::FilterType;
 
 fn main() {
-    let file = File::open("test/region/r.0.0.mca").unwrap();
-    let mut region = fastanvil::Region::from_stream(file).unwrap(); // region consist of 32x32 chunk squares
-    let data = region.read_chunk(13, 3).unwrap().unwrap(); // accessing the data from a region using read chunk, reach chunk here should be a number from 0..32
-
-    let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap(); // chunk conversion from bytes? should probably just be one line from the data variable later
-
-    // x coord is a range of 0..16 in the region, so is z coord, y coord is the real y coordinate of the block in the game.
-    // println!("{:?}", chunk.block(4, 62, 15).unwrap()); // this block should be an oak log if map is unchanged
-
     let list = get_region_files("test/region");
     let texture_list = get_texture_list();
     for region_file in &list {
@@ -46,44 +15,53 @@ fn main() {
     }
     println!("Length of region file list: {}", list.len());
 
-    // let six = list.get(0).unwrap();
-    // let region_6 = region_to_image(&six, &texture_list);
-    // region_6.save("out.png").unwrap();
-    // let seven = list.get(7).unwrap();
-    // let region_7 = region_to_image(&seven, &texture_list);
     let mut region_images: Vec<RegionImage> = vec![];
     let mut index = 1;
     for region in &list {
         let region_image = region_to_image(&region, &texture_list);
-        // region_image
-        //     .save(region_file_to_file_name(&region))
-        //     .unwrap();
-        region_images.push(RegionImage{ coordinate: region.coordinate, image: region_image });
+        let file_name = region_file_to_file_name(&region);
+
+        region_image
+            .save(format!("./output/{}", file_name))
+            .unwrap();
+        region_images.push(RegionImage {
+            coordinate: region.coordinate,
+            image: region_image,
+        });
         println!("Regions processed: {}, out of: {}", index, list.len());
         index += 1;
     }
 
     println!("Stitching regions");
     let full_map_image = stitch_region_images(region_images);
-    full_map_image.save("./output/all_regions_massive.png").unwrap();
+    full_map_image
+        .save("./output/all_regions_massive.png")
+        .unwrap();
     let full_map_width = full_map_image.width();
     let full_map_height = full_map_image.height();
 
     println!("Finished stitching images, scaling image now...");
 
-    let scaled_full_map_image = imageops::resize(&full_map_image, full_map_width / 10, full_map_height / 10, FilterType::Nearest);
+    let scaled_full_map_image = imageops::resize(
+        &full_map_image,
+        full_map_width / 10,
+        full_map_height / 10,
+        FilterType::Nearest,
+    );
 
-    scaled_full_map_image.save("./output/all_regions_tenth.png").unwrap();
-
+    scaled_full_map_image
+        .save("./output/all_regions_tenth.png")
+        .unwrap();
 }
 
 fn region_file_to_file_name(region: &RegionFile) -> String {
     format!("r.{}-{}.png", region.coordinate.0, region.coordinate.1)
 }
 
+/// type def for the hash map of textures and string
 type TextureListMap = HashMap<String, DynamicImage>;
 
-/// Returns a list of all the filenames in the assets folder.
+/// Returns a list of all the filenames in the assets folder hash mapped to the image data respective to that file name.
 fn get_texture_list() -> TextureListMap {
     let dir = fs::read_dir("assets").unwrap();
     let list: Vec<String> = dir
@@ -103,7 +81,6 @@ fn get_texture_list() -> TextureListMap {
 
     for file_name in list {
         let path = format!("assets/{}", file_name);
-        // let file = File::open(path).unwrap();
         let texture_name = file_name.split('.').next().unwrap(); // take the first thing that appears before the file extension
         let minecraft_texture_name = format!("minecraft:{}", texture_name);
         let image_data = read_texture_from_texture_name(path);
@@ -113,24 +90,27 @@ fn get_texture_list() -> TextureListMap {
     map
 }
 
+/// Stitches region images together in a not super intelligent way.
 fn stitch_region_images(list: Vec<RegionImage>) -> RgbImage {
-
     let region_image_size = 8192;
 
     let min_modifier_x = &list.iter().map(|ri| ri.coordinate.0).min().unwrap();
     let min_modifier_y = &list.iter().map(|ri| ri.coordinate.1).min().unwrap();
+    let max_modifier_x = &list.iter().map(|ri| ri.coordinate.0).max().unwrap();
+    let max_modifier_y = &list.iter().map(|ri| ri.coordinate.1).max().unwrap();
 
-    let min_coef_x = (min_modifier_x * region_image_size).abs();
-    let min_coef_y = (min_modifier_y * region_image_size).abs();
+    let min_coefficient_x = (min_modifier_x * region_image_size).abs();
+    let min_coefficient_y = (min_modifier_y * region_image_size).abs();
 
-    let width = region_image_size * min_modifier_x.abs() as i32;
-    let height = region_image_size * min_modifier_y.abs() as i32;
+    // TODO: eventually calculate this width and height more intelligently. At the moment the program produces a larger image than is needed by a lot.
+    let width = region_image_size * (min_modifier_x.abs() + 1 + max_modifier_x.abs()) as i32;
+    let height = region_image_size * (min_modifier_y.abs() + 1 + max_modifier_y.abs()) as i32;
 
     let mut img: RgbImage = ImageBuffer::new(width as u32, height as u32);
 
     for region in list {
-        let region_x = ((region.coordinate.0 * region_image_size) + min_coef_x) as usize;
-        let region_y = ((region.coordinate.1 * region_image_size) + min_coef_y) as usize;
+        let region_x = ((region.coordinate.0 * region_image_size) + min_coefficient_x) as usize;
+        let region_y = ((region.coordinate.1 * region_image_size) + min_coefficient_y) as usize;
         let pixels = region.image.enumerate_pixels();
 
         for pixel in pixels {
@@ -141,16 +121,12 @@ fn stitch_region_images(list: Vec<RegionImage>) -> RgbImage {
             let pixel_y = (region_y + y) as u32;
             img.put_pixel(pixel_x, pixel_y, color);
         }
-
     }
-
-    // img.save("all_regions_massive.png").unwrap();
     img
 }
 
+/// Converts a region file into an image and returns it, returns a black image of nothing if the region is not read correctly.
 fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) -> RgbImage {
-    // convert this to a for loop eventually
-    // let region_selected = &list.get(6).unwrap();
     let file = &region_selected.file;
     let region_coords = &region_selected.coordinate;
 
@@ -159,7 +135,17 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
 
     for chunk_x in 0..32 {
         for chunk_y in 0..32 {
-            let data = region.read_chunk(chunk_x, chunk_y).unwrap().unwrap();
+            let data = match region.read_chunk(chunk_x, chunk_y) {
+                Ok(r) => match r {
+                    None => {
+                        return ImageBuffer::new(8192, 8192); // if the region cant be read for any reason we return a black region image, could be done better i bet?
+                    }
+                    Some(vec) => vec,
+                },
+                Err(_) => {
+                    return ImageBuffer::new(8192, 8192); // if the region cant be read for any reason we return a black region image, could be done better i bet?
+                }
+            };
             let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
             images_of_chunks.push(chunk_to_image(
                 chunk,
@@ -187,10 +173,6 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
             img.put_pixel(pixel_x, pixel_y, color);
         }
     }
-
-    //img.save(file_name).unwrap();
-
-    // chunk_to_image(chunk,15,0, texture_list, region_coords);
     img
 }
 
@@ -204,6 +186,7 @@ fn chunk_to_image(
 ) -> (RgbImage, usize, usize) {
     let mut flattened_blocks: HashMap<(usize, usize), Block> = HashMap::new();
 
+    // loop to flatten the chunk and only take blocks that are seeing the sky.
     for x in 0..16 {
         for z in 0..16 {
             for y in (0..319).rev() {
@@ -221,10 +204,7 @@ fn chunk_to_image(
         }
     }
 
-    // println!("len of flat blocks: {}", flattened_blocks.len());
-    // println!("{:?}", flattened_blocks.get(&(4 as usize,15 as usize)));
     let mut img: RgbImage = ImageBuffer::new(256, 256);
-    // println!("flat block len: {}",flattened_blocks.len());
     for block in flattened_blocks {
         let block_x = block.0 .0 * 16;
         let block_y = block.0 .1 * 16;
@@ -237,6 +217,7 @@ fn chunk_to_image(
             }
             Some(tex) => tex,
         };
+        // loop to take the respective block textures and place them in the place the blocks occur in.
         for pixel in texture.pixels() {
             let color = pixel.2.to_rgb();
             let x = pixel.0 as usize;
@@ -251,25 +232,26 @@ fn chunk_to_image(
             img.put_pixel(pixel_x, pixel_y, color);
         }
     }
-    //img.save(file_name).unwrap();
     (img, chunk_x, chunk_y)
 }
 
 #[derive(Debug, Copy, Clone)]
+/// A struct to contain the region coordinate of a region file. e.g. r.-1.2.mca becomes ChunkCoordinate(-1,2)
 struct ChunkCoordinate(i32, i32);
 
 #[derive(Debug)]
+/// A struct to contain a region file header and its respective chunk coordinate.
 struct RegionFile {
     coordinate: ChunkCoordinate,
     file: File,
 }
 
 #[derive(Debug)]
+/// A struct to contain a region image and its respective chunk coordinate.
 struct RegionImage {
     coordinate: ChunkCoordinate,
     image: RgbImage,
 }
-
 
 impl Display for ChunkCoordinate {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -283,7 +265,8 @@ impl Display for RegionFile {
     }
 }
 
-/// Get all region files contained within a directory.
+/// Get all region files contained within a directory, output a vector full of the file handles and their region coordinates.
+/// e.g. r.0.-1.mca becomes a file header to that file, and a chunk coordinate of 0,-1
 fn get_region_files(path: &str) -> Vec<RegionFile> {
     let dir = fs::read_dir(path).unwrap();
     let list: Vec<RegionFile> = dir
@@ -307,8 +290,6 @@ fn get_region_files(path: &str) -> Vec<RegionFile> {
 
             let coord: ChunkCoordinate =
                 ChunkCoordinate(*coords.get(0).unwrap(), *coords.get(1).unwrap());
-
-            // println!("{:?}",coords);
 
             match File::open(file_dir_entry.path()) {
                 Ok(f) => Some(RegionFile {
