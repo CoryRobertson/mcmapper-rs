@@ -7,9 +7,11 @@ edition = "2021"
 
 [dependencies]
 # unsure of which crate to use, so at the moment trying a few?
-anvil-region = "0.8.1" # unsure if going to use
+#anvil-region = "0.8.1" # unsure if going to use
 fastnbt = "2.3.2"
 fastanvil = "0.26.0" # for read chunk data
-simple-anvil = "0.3.3" # unsure if going to use
-png = "0.17.7"
+#simple-anvil = "0.3.3" # unsure if going to use
+#png = "0.17.7"
 image = "0.24.5"
+rayon = "1.6.1"
+

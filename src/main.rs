@@ -2,10 +2,13 @@ use fastanvil::{Block, Chunk, CurrentJavaChunk};
 use fastnbt::from_bytes;
 use image::imageops::FilterType;
 use image::{imageops, DynamicImage, GenericImageView, ImageBuffer, Pixel, RgbImage};
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::File;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 
 fn main() {
     let list = get_region_files("test/region");
@@ -15,25 +18,38 @@ fn main() {
     }
     println!("Length of region file list: {}", list.len());
 
-    let mut region_images: Vec<RegionImage> = vec![];
-    let mut index = 1;
-    for region in &list {
-        let region_image = region_to_image(region, &texture_list);
-        let file_name = region_file_to_file_name(region);
+    let region_images: Mutex<Vec<RegionImage>> = Mutex::new(vec![]);
+    // let mut index = 1;
+    let threads_finished: AtomicU32 = AtomicU32::new(1);
+    let number_of_regions = list.len() as u32;
 
-        region_image
-            .save(format!("./output/{}", file_name))
-            .unwrap();
-        region_images.push(RegionImage {
-            coordinate: region.coordinate,
-            image: region_image,
+    list.into_par_iter()
+        .enumerate()
+        .for_each(|(index, region)| {
+            println!("Thread {} started.\n", index);
+            let region_image = region_to_image(&region, &texture_list);
+            let file_name = region_file_to_file_name(&region);
+
+            region_image
+                .save(format!("./output/{}", file_name))
+                .unwrap();
+
+            region_images.lock().unwrap().push(RegionImage {
+                coordinate: region.coordinate,
+                image: region_image,
+            });
+            println!("Thread {} ended.\n", index);
+            println!(
+                "Progress: {}/{}.\n",
+                threads_finished.load(Ordering::Relaxed),
+                number_of_regions
+            );
+
+            threads_finished.fetch_add(1, Ordering::Relaxed);
         });
-        println!("Regions processed: {}, out of: {}", index, list.len());
-        index += 1;
-    }
 
     println!("Stitching regions");
-    let full_map_image = stitch_region_images(region_images);
+    let full_map_image = stitch_region_images(&*region_images.lock().unwrap());
     full_map_image
         .save("./output/all_regions_massive.png")
         .unwrap();
@@ -87,7 +103,7 @@ fn get_texture_list() -> TextureListMap {
 }
 
 /// Stitches region images together in a not super intelligent way.
-fn stitch_region_images(list: Vec<RegionImage>) -> RgbImage {
+fn stitch_region_images(list: &Vec<RegionImage>) -> RgbImage {
     let region_image_size = 8192;
 
     let min_modifier_x = &list.iter().map(|ri| ri.coordinate.0).min().unwrap();
