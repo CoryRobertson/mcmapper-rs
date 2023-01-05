@@ -27,12 +27,10 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::fs::File;
-use std::hash::Hash;
 use std::io::BufWriter;
-use std::num::ParseIntError;
 use fastanvil::{Block, Chunk, CurrentJavaChunk};
 use fastnbt::from_bytes;
-use simple_anvil::region::Region;
+use image::{ImageBuffer, RgbaImage, RgbImage};
 
 fn main() {
 
@@ -47,9 +45,12 @@ fn main() {
 
     let list = get_region_files("test/region");
     let texture_list = get_texture_list();
-    for region_file in &list {
-        println!("{}", region_file);
-    }
+    // for region_file in &list {
+    //     println!("{}", region_file);
+    // }
+    println!("Length of region file list: {}",list.len());
+
+    println!("Minecraft sand texture: {:?}", texture_list.get("minecraft:sand"));
 
     region_to_image(&list, &texture_list);
 
@@ -58,9 +59,11 @@ fn main() {
     // }
 
 
+
+
 }
 
-type TextureListMap = HashMap<String,File>;
+type TextureListMap = HashMap<String,Vec<u8>>;
 
 /// Returns a list of all the filenames in the assets folder.
 fn get_texture_list() -> TextureListMap {
@@ -87,8 +90,8 @@ fn get_texture_list() -> TextureListMap {
         let file = File::open(format!("assets/{}", file_name)).unwrap();
         let texture_name = file_name.split('.').next().unwrap(); // take the first thing that appears before the file extension
         let minecraft_texture_name = format!("minecraft:{}", texture_name);
-        let texture = read_texture_into_array(&file);
-        map.insert(minecraft_texture_name,file);
+        let image_data = read_texture_into_array(file);
+        map.insert(minecraft_texture_name,image_data);
     }
     map
 }
@@ -97,10 +100,11 @@ fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
     // convert this to a for loop eventually
     let file = &list.get(6).unwrap().file;
     let mut region = fastanvil::Region::from_stream(file).unwrap();
-    let data = region.read_chunk(13, 3).unwrap().unwrap();
+    let data = region.read_chunk(15, 0).unwrap().unwrap();
     let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
     let mut flattened_blocks: HashMap<(usize, usize),Block> = HashMap::new();
     // go through every coordinate in the given chunk, and find the highest block that is not air, add it to hash map.
+    // FIXME: i dont think this works the way it is intended?
     for x in 0..16 {
         for z in 0..16 {
             for y in (0..319).rev() { // go from top to bottom, cause top of map is most likely air and we stop when we find something.
@@ -117,46 +121,74 @@ fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
         }
     }
 
+    // let mut index = 0;
+    // for block in &flattened_blocks {
+    //     let x = block.0.0;
+    //     let y = block.0.1;
+    //     let mc_block = &block.1;
+    //
+    //
+    //     print!("{},", mc_block.name());
+    //
+    //     if index % 16 == 0 {
+    //         println!("");
+    //     }
+    //
+    //     index += 1;
+    // }
+
     println!("len of flat blocks: {}", flattened_blocks.len());
     println!("{:?}", flattened_blocks.get(&(4 as usize,15 as usize)));
     // TODO: make this output an image based on this block, then make it stitch this image together with blocks
 
-    let mut image_data: [u8 ; 1024] = [0 ; 1024];
+    let mut image_data: [u8 ; 262144] = [0 ; 262144]; // 16^2 for area of a block times how many blocks we are storing, in this case one chunk. so 16^2*16^2 = 65536, times 4 for RGBA
 
     let mut index = 0;
-    println!("{:?}",texture_list);
+    // println!("{:?}",texture_list);
+    // panic!("");
     println!("flat block len: {}",flattened_blocks.len());
     for block in flattened_blocks {
         let x = block.0.0;
         let y = block.0.1;
         let mc_block = &block.1;
-        
-        image_data[index] = 1;
+        let texture = match texture_list.get(mc_block.name()) {
+            None => {
+                println!("could not find texture for: {:?}, using default instead", mc_block);
+                let out: [u8 ; 1024] = [0; 1024];
+                out.to_vec()
+            }
+            Some(tex) => {
+                // FIXME: eventually remove this clone and instead have the none result use a reference instead.
+                //println!("found texture for: {:?}", mc_block);
+                //println!("tex len: {}", tex.len());
+                tex.clone()
+            }
+        };
+        // image_data[index] = 1;
+        for a in 0..1024 {
+            // println!("{} : {}", a, texture.get(a).unwrap());
+            image_data[index + a] = *texture.get(a).unwrap();
+        }
 
-        index += 4;
+
+        index += 1024;
     }
 
-    println!("{:?}", image_data);
+    // let file = File::create("./test.png").unwrap();
+    // let ref mut w = BufWriter::new(file);
+    // let mut encoder = png::Encoder::new(w, 256, 256); // Width is 2 pixels and height is 1.
+    // encoder.set_color(png::ColorType::Rgba);
+    // encoder.set_depth(png::BitDepth::Eight);
+    // // encoder.set_source_gamma(png::ScaledFloat::from_scaled(45455)); // 1.0 / 2.2, scaled by 100000
+    // let mut writer = encoder.write_header().unwrap();
+    //
+    // //println!("{:?}", image_data);
+    // writer.write_image_data(&image_data).unwrap(); // Save
 
-    let file = File::create("./test.png").unwrap();
-    let ref mut w = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, 2, 1); // Width is 2 pixels and height is 1.
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.set_source_gamma(png::ScaledFloat::from_scaled(45455)); // 1.0 / 2.2, scaled by 100000
-    encoder.set_source_gamma(png::ScaledFloat::new(1.0 / 2.2));     // 1.0 / 2.2, unscaled, but rounded
-    let source_chromaticities = png::SourceChromaticities::new(     // Using unscaled instantiation here
-                                                                    (0.31270, 0.32900),
-                                                                    (0.64000, 0.33000),
-                                                                    (0.30000, 0.60000),
-                                                                    (0.15000, 0.06000)
-    );
-    encoder.set_source_chromaticities(source_chromaticities);
-    let mut writer = encoder.write_header().unwrap();
+    // let img: RgbImage = ImageBuffer::new(256,256);
+    image::save_buffer("text.png", &image_data, 256, 256, image::ColorType::Rgba8).unwrap();
 
-    let data = [255, 0, 0, 255, 0, 0, 0, 255]; // An array containing a RGBA sequence. First pixel is red and second pixel is black.
 
-    writer.write_image_data(&data).unwrap(); // Save
 }
 
 #[derive(Debug)]
@@ -181,9 +213,9 @@ impl Display for RegionFile {
 }
 
 /// Get all region files contained within a directory.
-fn get_region_files(path: &str) -> Vec<(RegionFile)> {
+fn get_region_files(path: &str) -> Vec<RegionFile> {
     let dir = fs::read_dir(path).unwrap();
-    let list: Vec<(RegionFile)> = dir
+    let list: Vec<RegionFile> = dir
         .into_iter()
         .map(|file_in_dir| {
             match file_in_dir {
@@ -216,8 +248,8 @@ fn get_region_files(path: &str) -> Vec<(RegionFile)> {
     list
 }
 
-fn read_texture_into_array(file: &File) -> Vec<u8> {
-    println!("{:?}", file);
+fn read_texture_into_array(file: File) -> Vec<u8> {
+    //println!("{:?}", file);
     let decoder = png::Decoder::new(file);
     let mut reader = decoder.read_info().unwrap();
     // Allocate the output buffer.
