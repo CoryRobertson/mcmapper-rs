@@ -142,7 +142,14 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
                     return ImageBuffer::new(8192, 8192); // if the region cant be read for any reason we return a black region image, could be done better i bet?
                 }
             };
-            let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
+
+            let chunk_result = from_bytes(data.as_slice());
+
+            if chunk_result.is_err() {
+                return ImageBuffer::new(8192, 8192);
+            }
+
+            let chunk: CurrentJavaChunk = chunk_result.unwrap();
             images_of_chunks.push(chunk_to_image(
                 chunk,
                 chunk_x,
