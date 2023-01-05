@@ -18,8 +18,8 @@ fn main() {
     let mut region_images: Vec<RegionImage> = vec![];
     let mut index = 1;
     for region in &list {
-        let region_image = region_to_image(&region, &texture_list);
-        let file_name = region_file_to_file_name(&region);
+        let region_image = region_to_image(region, &texture_list);
+        let file_name = region_file_to_file_name(region);
 
         region_image
             .save(format!("./output/{}", file_name))
@@ -66,15 +66,11 @@ fn get_texture_list() -> TextureListMap {
     let dir = fs::read_dir("assets").unwrap();
     let list: Vec<String> = dir
         .into_iter()
-        .map(|file_in_dir| match file_in_dir {
+        .filter_map(|file_in_dir| match file_in_dir {
             Ok(f) => Some(f),
             Err(_) => None,
         })
-        .filter_map(|file_option| file_option)
-        .filter_map(|file_entry| match file_entry.file_name().to_str() {
-            None => None,
-            Some(str) => Some(str.to_string()),
-        })
+        .filter_map(|file_entry| file_entry.file_name().to_str().map(|str| str.to_string()))
         .collect();
 
     let mut map: TextureListMap = HashMap::new();
@@ -271,11 +267,10 @@ fn get_region_files(path: &str) -> Vec<RegionFile> {
     let dir = fs::read_dir(path).unwrap();
     let list: Vec<RegionFile> = dir
         .into_iter()
-        .map(|file_in_dir| match file_in_dir {
+        .filter_map(|file_in_dir| match file_in_dir {
             Ok(f) => Some(f),
             Err(_) => None,
         })
-        .filter_map(|file_option| file_option)
         .filter_map(|file_dir_entry| {
             let coords: Vec<i32> = file_dir_entry
                 .file_name()
@@ -289,7 +284,7 @@ fn get_region_files(path: &str) -> Vec<RegionFile> {
                 .collect();
 
             let coord: ChunkCoordinate =
-                ChunkCoordinate(*coords.get(0).unwrap(), *coords.get(1).unwrap());
+                ChunkCoordinate(*coords.first().unwrap(), *coords.get(1).unwrap());
 
             match File::open(file_dir_entry.path()) {
                 Ok(f) => Some(RegionFile {
