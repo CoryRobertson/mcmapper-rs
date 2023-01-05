@@ -104,23 +104,40 @@ fn region_to_image(list: &Vec<RegionFile>, texture_list: &TextureListMap) {
     let region_coords = &region_selected.coordinate;
 
     let mut region = fastanvil::Region::from_stream(file).unwrap();
+    let mut images_of_chunks: Vec<(RgbImage,usize,usize)> = vec![]; // image,x,y
 
-    let data = region.read_chunk(15, 0).unwrap().unwrap();
-    let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
+    for chunk_x in 0..16 {
+        for chunk_y in 0..16 {
+            let data = region.read_chunk(chunk_x, chunk_y).unwrap().unwrap();
+            let chunk: CurrentJavaChunk = from_bytes(data.as_slice()).unwrap();
+            images_of_chunks.push(chunk_to_image(chunk,chunk_x,chunk_y,texture_list,region_coords));
+        }
+    }
 
-    // for chunk_x in 0..16 {
-    //     for chunk_y in 0..16 {
-    //
-    //     }
-    // }
+    let mut img = ImageBuffer::new(4096,4096); // 4096 = 16 chunk images * 16 chunks total
 
-    chunk_to_image(chunk,15,0, texture_list, region_coords);
+    for chunk in images_of_chunks {
+        let block_x = chunk.1 * 256;
+        let block_y = chunk.2 * 256;
+        let pixels = chunk.0.enumerate_pixels();
+
+        for pixel in pixels {
+            let color = pixel.2.to_rgb();
+            let x = pixel.0 as usize;
+            let y =  pixel.1 as usize;
+            img.put_pixel((block_x + x) as u32, (block_y + y) as u32, color);
+        }
+
+    }
+
+    img.save("output.png").unwrap();
+    // chunk_to_image(chunk,15,0, texture_list, region_coords);
 }
 
 /// convert a chunk to an image, the chunk x and chunk y are purely for file naming only.
-fn chunk_to_image(chunk: CurrentJavaChunk, chunk_x: usize, chunk_y: usize, texture_list: &TextureListMap, region_coords: &ChunkCoordinate) {
+fn chunk_to_image(chunk: CurrentJavaChunk, chunk_x: usize, chunk_y: usize, texture_list: &TextureListMap, region_coords: &ChunkCoordinate) -> (RgbImage, usize, usize) {
     let mut flattened_blocks: HashMap<(usize, usize),Block> = HashMap::new();
-    let file_name = format!("r.{}_{}-{}.png",region_coords,chunk_x,chunk_y);
+    let file_name = format!("./output/r.{}_{}-{}.png",region_coords,chunk_x,chunk_y);
     // go through every coordinate in the given chunk, and find the highest block that is not air, add it to hash map.
     for x in 0..16 {
         for z in 0..16 {
@@ -162,6 +179,7 @@ fn chunk_to_image(chunk: CurrentJavaChunk, chunk_x: usize, chunk_y: usize, textu
         }
     }
     img.save(file_name).unwrap();
+    (img,chunk_x,chunk_y)
 }
 
 #[derive(Debug)]
