@@ -70,6 +70,7 @@ fn main() {
     // TODO: eventually prompt user for all these things instead of just expecting things to be in the right folder.
 
     let list = get_region_files("test/region");
+    println!("Discovering texture files");
     let texture_list = get_texture_list();
     for region_file in &list {
         println!("Region file found: {}", region_file);
@@ -175,10 +176,21 @@ fn get_texture_list() -> TextureListMap {
         let minecraft_texture_name = format!("minecraft:{}", texture_name);
         let image_data = read_texture_from_texture_name(path);
 
-        map.insert(minecraft_texture_name, image_data);
+        if image_data.height() > 16 || image_data.width() > 16 { // if the texture loaded is larger than expected, we resize it
+            let resized_image_data = imageops::resize(&image_data,16,16,FilterType::Nearest);
+            map.insert(minecraft_texture_name, DynamicImage::from(resized_image_data));
+        }
+        else { // if its the expected size or smaller, re just load the image into the hash map.
+            map.insert(minecraft_texture_name, image_data);
+        }
+
     }
+
+    map.insert("minecraft:error".to_string(),read_texture_from_texture_name("error.png".to_string()));
+
     map
 }
+
 
 /// Stitches region images together in a not super intelligent way.
 fn stitch_region_images(list: &Vec<RegionImage>) -> RgbImage {
@@ -272,7 +284,7 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
     img
 }
 
-/// convert a chunk to an image, the chunk x and chunk y are purely for file naming only.
+/// convert a chunk to an image, the chunk x and chunk y are purely for file naming and image placement in the region file..
 fn chunk_to_image(
     chunk: CurrentJavaChunk,
     chunk_x: usize,
@@ -289,7 +301,7 @@ fn chunk_to_image(
                 // go from top to bottom, cause top of map is most likely air and we stop when we find something.
                 match chunk.block(x, y, z) {
                     Some(b) => {
-                        if b.name().ne("minecraft:air") {
+                        if b.name().ne("minecraft:air") && b.name().ne("minecraft:cave_air") {
                             flattened_blocks.insert((x, z), b.clone());
                             break;
                         }
@@ -307,9 +319,19 @@ fn chunk_to_image(
         let mc_block = &block.1;
         let texture = match texture_list.get(mc_block.name()) {
             None => {
-                // panic!("ERROR BLOCK TEXTURE NOT FOUND FOR BLOCK: {:?}", mc_block);
-                //println!("no texture for: {:?}, using anvil", mc_block);
-                texture_list.get("minecraft:anvil").unwrap()
+                // this function slows down the program a good amount in terms of chunk rendering, worth the cost for the easier output though.
+                match search_texture_map(&texture_list,mc_block.name()) {
+                    None => {
+                        // #[cfg(debug_assertions)]
+                        // println!("no texture for: {:?}, using error texture: \n", mc_block);
+                        // panic!("unable to find texture, even after searched texture: {:?}", mc_block);
+                        texture_list.get("minecraft:error").unwrap()
+                    }
+                    Some(tex) => {
+                        // panic!("unable to find texture, found searched texture: {:?}", mc_block);
+                        tex
+                    }
+                }
             }
             Some(tex) => tex,
         };
@@ -329,6 +351,28 @@ fn chunk_to_image(
         }
     }
     (img, chunk_x, chunk_y)
+}
+
+/// Takes in a list of textures and a search name, and returns either nothing if the texture was not found, or the texture that was found.
+fn search_texture_map<'a>(list: &'a TextureListMap, search_name: &str) -> Option<&'a DynamicImage> {
+    for (name,texture) in list {
+        // if we happen to fine a name of a block that has extra text after, e.g. we are searching for oak_stairs but we find dark_oak_stairs, this should find it and be good enough.
+        if name.contains(search_name) {
+            return Some(texture);
+        }
+        // if the first search doesnt work, we can shorten the name and remove its modifiers e.g. "dark_oak_stairs" becomes "dark", very approximate but it works for simplicity sake.
+        // TODO: eventually improve this search by instead seeing if it can find a texture that contains the most portions of search name when split by '_', this will require a large search function.
+        //  Unsure if this is worth the runtime costs.
+        match search_name.split("_").next() {
+            None => {}
+            Some(short_name) => {
+                if name.contains(short_name) {
+                    return Some(texture);
+                }
+            }
+        }
+    }
+    return None;
 }
 
 #[derive(Debug, Copy, Clone)]
