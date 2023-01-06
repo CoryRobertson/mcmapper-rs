@@ -10,7 +10,7 @@ use std::fs::File;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
-struct BoundingBox((u32,u32),(u32,u32));
+struct BoundingBox((u32, u32), (u32, u32));
 
 /// Given an image, finds the smallest square shape crop that removes only rgb[0,0,0] pixels.
 /// Due to the image crate, the output is a bounding box where the first two numbers are x and y to start, but the second two are width and height, not x2 and y2.
@@ -22,7 +22,7 @@ fn find_bounding_box_for_map(image: &RgbImage) -> BoundingBox {
     let mut lower_x_bound = 0;
     'outer: for x in 0..width {
         for y in 0..height {
-            if image.get_pixel(x,y).0.ne(&[0,0,0]) {
+            if image.get_pixel(x, y).0.ne(&[0, 0, 0]) {
                 lower_x_bound = x;
                 break 'outer;
             }
@@ -30,10 +30,10 @@ fn find_bounding_box_for_map(image: &RgbImage) -> BoundingBox {
     }
 
     // calculate the highest x coord bound
-    let mut upper_x_bound= width;
+    let mut upper_x_bound = width;
     'outer: for x in (0..width).rev() {
         for y in (0..height).rev() {
-            if image.get_pixel(x,y).0.ne(&[0,0,0]) {
+            if image.get_pixel(x, y).0.ne(&[0, 0, 0]) {
                 upper_x_bound = x;
                 break 'outer;
             }
@@ -41,10 +41,10 @@ fn find_bounding_box_for_map(image: &RgbImage) -> BoundingBox {
     }
 
     // calculate lowest y coord bound
-    let mut lower_y_bound= 0;
+    let mut lower_y_bound = 0;
     'outer: for y in 0..height {
         for x in 0..width {
-            if image.get_pixel(x,y).0.ne(&[0,0,0]) {
+            if image.get_pixel(x, y).0.ne(&[0, 0, 0]) {
                 lower_y_bound = y;
                 break 'outer;
             }
@@ -52,21 +52,23 @@ fn find_bounding_box_for_map(image: &RgbImage) -> BoundingBox {
     }
 
     // calculate the highest y coord bound
-    let mut upper_y_bound= height;
+    let mut upper_y_bound = height;
     'outer: for y in (0..height).rev() {
         for x in (0..width).rev() {
-            if image.get_pixel(x,y).0.ne(&[0,0,0]) {
+            if image.get_pixel(x, y).0.ne(&[0, 0, 0]) {
                 upper_y_bound = y;
                 break 'outer;
             }
         }
     }
 
-    BoundingBox((lower_x_bound,lower_y_bound),(upper_x_bound - lower_x_bound,upper_y_bound - lower_y_bound))
+    BoundingBox(
+        (lower_x_bound, lower_y_bound),
+        (upper_x_bound - lower_x_bound, upper_y_bound - lower_y_bound),
+    )
 }
 
 fn main() {
-
     // TODO: eventually prompt user for all these things instead of just expecting things to be in the right folder.
 
     let list = get_region_files("test/region");
@@ -127,13 +129,15 @@ fn main() {
         .save("./output/all_regions_tenth.png")
         .unwrap(); // save the scaled image down.
 
-
     println!("Cropping full map image...");
 
     // crop the image to the bounding box we calculate for the full image
     let crop = find_bounding_box_for_map(&full_map_image);
-    let cropped_full_map_image = imageops::crop_imm(&full_map_image,crop.0.0,crop.0.1,crop.1.0,crop.1.1).to_image();
-    cropped_full_map_image.save("./output/cropped_all_regions_massive.png").unwrap();
+    let cropped_full_map_image =
+        imageops::crop_imm(&full_map_image, crop.0 .0, crop.0 .1, crop.1 .0, crop.1 .1).to_image();
+    cropped_full_map_image
+        .save("./output/cropped_all_regions_massive.png")
+        .unwrap();
 
     println!("Scaling newly cropped image...");
 
@@ -144,7 +148,9 @@ fn main() {
         FilterType::Nearest,
     ); // scale the image down a good amount for distribution reasons.
 
-    scaled_full_map_image.save("./output/cropped_all_regions_tenth.png").unwrap();
+    scaled_full_map_image
+        .save("./output/cropped_all_regions_tenth.png")
+        .unwrap();
 
     println!("Done!");
 }
@@ -176,21 +182,26 @@ fn get_texture_list() -> TextureListMap {
         let minecraft_texture_name = format!("minecraft:{}", texture_name);
         let image_data = read_texture_from_texture_name(path);
 
-        if image_data.height() > 16 || image_data.width() > 16 { // if the texture loaded is larger than expected, we resize it
-            let resized_image_data = imageops::resize(&image_data,16,16,FilterType::Nearest);
-            map.insert(minecraft_texture_name, DynamicImage::from(resized_image_data));
-        }
-        else { // if its the expected size or smaller, re just load the image into the hash map.
+        if image_data.height() > 16 || image_data.width() > 16 {
+            // if the texture loaded is larger than expected, we resize it
+            let resized_image_data = imageops::resize(&image_data, 16, 16, FilterType::Nearest);
+            map.insert(
+                minecraft_texture_name,
+                DynamicImage::from(resized_image_data),
+            );
+        } else {
+            // if its the expected size or smaller, re just load the image into the hash map.
             map.insert(minecraft_texture_name, image_data);
         }
-
     }
 
-    map.insert("minecraft:error".to_string(),read_texture_from_texture_name("error.png".to_string()));
+    map.insert(
+        "minecraft:error".to_string(),
+        read_texture_from_texture_name("error.png".to_string()),
+    );
 
     map
 }
-
 
 /// Stitches region images together in a not super intelligent way.
 fn stitch_region_images(list: &Vec<RegionImage>) -> RgbImage {
@@ -320,7 +331,7 @@ fn chunk_to_image(
         let texture = match texture_list.get(mc_block.name()) {
             None => {
                 // this function slows down the program a good amount in terms of chunk rendering, worth the cost for the easier output though.
-                match search_texture_map(&texture_list,mc_block.name()) {
+                match search_texture_map(&texture_list, mc_block.name()) {
                     None => {
                         // #[cfg(debug_assertions)]
                         // println!("no texture for: {:?}, using error texture: \n", mc_block);
@@ -355,15 +366,15 @@ fn chunk_to_image(
 
 /// Takes in a list of textures and a search name, and returns either nothing if the texture was not found, or the texture that was found.
 fn search_texture_map<'a>(list: &'a TextureListMap, search_name: &str) -> Option<&'a DynamicImage> {
-    for (name,texture) in list {
+    for (name, texture) in list {
         // if we happen to fine a name of a block that has extra text after, e.g. we are searching for oak_stairs but we find dark_oak_stairs, this should find it and be good enough.
-        if name.contains(search_name) {
+        if name.contains(search_name) || search_name.contains(name) {
             return Some(texture);
         }
         // if the first search doesnt work, we can shorten the name and remove its modifiers e.g. "dark_oak_stairs" becomes "dark", very approximate but it works for simplicity sake.
         // TODO: eventually improve this search by instead seeing if it can find a texture that contains the most portions of search name when split by '_', this will require a large search function.
         //  Unsure if this is worth the runtime costs.
-        match search_name.split("_").next() {
+        match search_name.split('_').next() {
             None => {}
             Some(short_name) => {
                 if name.contains(short_name) {
