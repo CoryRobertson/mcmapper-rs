@@ -10,7 +10,69 @@ use std::fs::File;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
+struct BoundingBox((u32,u32),(u32,u32));
+
+fn find_bounding_box_for_map(image: RgbImage) -> BoundingBox {
+    let width = image.width();
+    let height = image.height();
+
+    // calculate the lowest x coord bound
+    let mut lower_x_bound = 0;
+    'outer: for x in 0..width {
+        for y in 0..height {
+            if image.get_pixel(x,y).0.ne(&[0,0,0]) {
+                lower_x_bound = x;
+                break 'outer;
+            }
+        }
+    }
+
+    let mut upper_x_bound= 0;
+    'outer: for x in (0..width).rev() {
+        for y in (0..height).rev() {
+            if image.get_pixel(x,y).0.ne(&[0,0,0]) {
+                upper_x_bound = x;
+                break 'outer;
+            }
+        }
+    }
+
+    let mut lower_y_bound= 0;
+    'outer: for y in 0..height {
+        for x in 0..width {
+            if image.get_pixel(x,y).0.ne(&[0,0,0]) {
+                lower_y_bound = y;
+                break 'outer;
+            }
+        }
+    }
+
+    let mut upper_y_bound= 0;
+    'outer: for y in (0..height).rev() {
+        for x in (0..width).rev() {
+            if image.get_pixel(x,y).0.ne(&[0,0,0]) {
+                upper_y_bound = y;
+                break 'outer;
+            }
+        }
+    }
+
+
+    println!("lowerx: {}", lower_x_bound);
+    println!("lowery: {}", lower_y_bound);
+    println!("upperx: {}", upper_x_bound);
+    println!("uppery: {}", upper_y_bound);
+
+    BoundingBox((lower_x_bound,lower_y_bound),(upper_x_bound,upper_y_bound))
+
+}
+
 fn main() {
+
+    // TODO: eventually prompt user for all these things instead of just expecting things to be in the right folder.
+
+    find_bounding_box_for_map(image::open("output/all_regions_tenth.png").unwrap().into_rgb8());
+
     let list = get_region_files("test/region");
     let texture_list = get_texture_list();
     for region_file in &list {
@@ -27,32 +89,32 @@ fn main() {
         .enumerate()
         .for_each(|(index, region)| {
             println!("Thread {} started.\n", index);
-            let region_image = region_to_image(&region, &texture_list);
-            let file_name = region_file_to_file_name(&region);
+            let region_image = region_to_image(&region, &texture_list); // generate the image of a region
+            let file_name = region_file_to_file_name(&region); // get the file name that the region should have
 
             region_image
                 .save(format!("./output/{}", file_name))
-                .unwrap();
+                .unwrap(); // save the region image that was generated
 
             region_images.lock().unwrap().push(RegionImage {
                 coordinate: region.coordinate,
                 image: region_image,
-            });
+            }); // add the image of the region to the region images vector so we can stitch them all together
             println!("Thread {} ended.\n", index);
             println!(
                 "Progress: {}/{}.\n",
                 threads_finished.load(Ordering::Relaxed),
                 number_of_regions
-            );
+            ); // print out the progress of how many threads are done versus not done.
 
-            threads_finished.fetch_add(1, Ordering::Relaxed);
+            threads_finished.fetch_add(1, Ordering::Relaxed); // add to the number of threads that have concluded
         });
 
     println!("Stitching regions");
-    let full_map_image = stitch_region_images(&region_images.lock().unwrap());
+    let full_map_image = stitch_region_images(&region_images.lock().unwrap()); // generate the full map image from all the region images
     full_map_image
         .save("./output/all_regions_massive.png")
-        .unwrap();
+        .unwrap(); // save the full map image to the system
     let full_map_width = full_map_image.width();
     let full_map_height = full_map_image.height();
 
@@ -64,11 +126,11 @@ fn main() {
         full_map_width / 10,
         full_map_height / 10,
         FilterType::Nearest,
-    );
+    ); // scale the image down a good amount for distribution reasons.
 
     scaled_full_map_image
         .save("./output/all_regions_tenth.png")
-        .unwrap();
+        .unwrap(); // save the scaled image down.
 }
 
 fn region_file_to_file_name(region: &RegionFile) -> String {
