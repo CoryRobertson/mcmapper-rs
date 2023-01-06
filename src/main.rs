@@ -331,7 +331,7 @@ fn chunk_to_image(
         let texture = match texture_list.get(mc_block.name()) {
             None => {
                 // this function slows down the program a good amount in terms of chunk rendering, worth the cost for the easier output though.
-                match search_texture_map(&texture_list, mc_block.name()) {
+                match search_texture_map(texture_list, mc_block.name()) {
                     None => {
                         // #[cfg(debug_assertions)]
                         // println!("no texture for: {:?}, using error texture: \n", mc_block);
@@ -383,7 +383,7 @@ fn search_texture_map<'a>(list: &'a TextureListMap, search_name: &str) -> Option
             }
         }
     }
-    return None;
+    None
 }
 
 #[derive(Debug, Copy, Clone)]
