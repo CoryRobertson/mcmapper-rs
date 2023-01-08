@@ -13,6 +13,103 @@ use std::time::SystemTime;
 
 struct BoundingBox((u32, u32), (u32, u32));
 
+fn main() {
+    // TODO: eventually prompt user for all these things instead of just expecting things to be in the right folder.
+
+    let list = get_region_files("test/region");
+    println!("Discovering texture files");
+    let texture_list = get_texture_list();
+    for region_file in &list {
+        println!("Region file found: {}", region_file);
+    }
+    println!("Length of region file list: {}", list.len());
+
+    let region_images: Mutex<Vec<RegionImage>> = Mutex::new(vec![]); // vector full of all the images that are generated from the region files
+    let threads_finished: AtomicU32 = AtomicU32::new(1); // number of threads that are finished
+    let number_of_regions = list.len() as u32; // number of regions to calculate images for.
+
+    list.into_par_iter()
+        .enumerate()
+        .for_each(|(index, region)| {
+            println!("Thread {} started.\n", index);
+            let region_image = region_to_image(&region, &texture_list); // generate the image of a region
+            let file_name = region_file_to_file_name(&region); // get the file name that the region should have
+
+            region_image
+                .save(format!("./output/{}", file_name))
+                .unwrap(); // save the region image that was generated
+
+            region_images.lock().unwrap().push(RegionImage {
+                coordinate: region.coordinate,
+                image: region_image,
+            }); // add the image of the region to the region images vector so we can stitch them all together
+            println!("Thread {} ended.\n", index);
+            println!(
+                "Progress: {}/{}.\n",
+                threads_finished.load(Ordering::Relaxed),
+                number_of_regions
+            ); // print out the progress of how many threads are done versus not done.
+
+            threads_finished.fetch_add(1, Ordering::Relaxed); // add to the number of threads that have concluded
+        });
+
+    println!("Stitching regions...");
+    let start_stitch_time = SystemTime::now();
+
+    let full_map_image = stitch_region_images(&region_images.lock().unwrap()); // generate the full map image from all the region images
+
+    println!("Finished stitching images, saving image as file...");
+
+    full_map_image
+        .save("./output/all_regions_massive.png")
+        .unwrap(); // save the full map image to the system
+    let full_map_width = full_map_image.width();
+    let full_map_height = full_map_image.height();
+
+    println!("Stitch time: {:.2} seconds", SystemTime::now().duration_since(start_stitch_time).unwrap().as_secs_f32());
+    println!("Scaling image now...");
+
+    let scaled_full_map_image = imageops::resize(
+        &full_map_image,
+        full_map_width / 10,
+        full_map_height / 10,
+        FilterType::Nearest,
+    ); // scale the image down a good amount for distribution reasons.
+
+    scaled_full_map_image
+        .save("./output/all_regions_tenth.png")
+        .unwrap(); // save the scaled image down.
+
+    println!("Cropping full map image...");
+
+    // crop the image to the bounding box we calculate for the full image
+    let crop = find_bounding_box_for_map(&full_map_image);
+    let cropped_full_map_image =
+        imageops::crop_imm(&full_map_image, crop.0 .0, crop.0 .1, crop.1 .0, crop.1 .1).to_image();
+    cropped_full_map_image
+        .save("./output/cropped_all_regions_massive.png")
+        .unwrap();
+
+    println!("Scaling newly cropped image...");
+
+    let scaled_full_map_image = imageops::resize(
+        &cropped_full_map_image,
+        cropped_full_map_image.width() / 10,
+        cropped_full_map_image.height() / 10,
+        FilterType::Nearest,
+    ); // scale the image down a good amount for distribution reasons.
+
+    scaled_full_map_image
+        .save("./output/cropped_all_regions_tenth.png")
+        .unwrap();
+
+    println!("Done!");
+}
+
+fn region_file_to_file_name(region: &RegionFile) -> String {
+    format!("r.{}.{}.png", region.coordinate.0, region.coordinate.1)
+}
+
 /// Given an image, finds the smallest square shape crop that removes only rgb[0,0,0] pixels.
 /// Due to the image crate, the output is a bounding box where the first two numbers are x and y to start, but the second two are width and height, not x2 and y2.
 fn find_bounding_box_for_map(image: &RgbImage) -> BoundingBox {
@@ -67,101 +164,6 @@ fn find_bounding_box_for_map(image: &RgbImage) -> BoundingBox {
         (lower_x_bound, lower_y_bound),
         (upper_x_bound - lower_x_bound, upper_y_bound - lower_y_bound),
     )
-}
-
-fn main() {
-    // TODO: eventually prompt user for all these things instead of just expecting things to be in the right folder.
-
-
-    let list = get_region_files("test/region");
-    println!("Discovering texture files");
-    let texture_list = get_texture_list();
-    for region_file in &list {
-        println!("Region file found: {}", region_file);
-    }
-    println!("Length of region file list: {}", list.len());
-
-    let region_images: Mutex<Vec<RegionImage>> = Mutex::new(vec![]); // vector full of all the images that are generated from the region files
-    let threads_finished: AtomicU32 = AtomicU32::new(1); // number of threads that are finished
-    let number_of_regions = list.len() as u32; // number of regions to calculate images for.
-
-    list.into_par_iter()
-        .enumerate()
-        .for_each(|(index, region)| {
-            println!("Thread {} started.\n", index);
-            let region_image = region_to_image(&region, &texture_list); // generate the image of a region
-            let file_name = region_file_to_file_name(&region); // get the file name that the region should have
-
-            region_image
-                .save(format!("./output/{}", file_name))
-                .unwrap(); // save the region image that was generated
-
-            region_images.lock().unwrap().push(RegionImage {
-                coordinate: region.coordinate,
-                image: region_image,
-            }); // add the image of the region to the region images vector so we can stitch them all together
-            println!("Thread {} ended.\n", index);
-            println!(
-                "Progress: {}/{}.\n",
-                threads_finished.load(Ordering::Relaxed),
-                number_of_regions
-            ); // print out the progress of how many threads are done versus not done.
-
-            threads_finished.fetch_add(1, Ordering::Relaxed); // add to the number of threads that have concluded
-        });
-
-    println!("Stitching regions...");
-    let start = SystemTime::now();
-
-    let full_map_image = stitch_region_images(&region_images.lock().unwrap()); // generate the full map image from all the region images
-    full_map_image
-        .save("./output/all_regions_massive.png")
-        .unwrap(); // save the full map image to the system
-    let full_map_width = full_map_image.width();
-    let full_map_height = full_map_image.height();
-
-    println!("Stitch time: {:.2} seconds", SystemTime::now().duration_since(start).unwrap().as_secs_f32());
-    println!("Finished stitching images, scaling image now...");
-
-    let scaled_full_map_image = imageops::resize(
-        &full_map_image,
-        full_map_width / 10,
-        full_map_height / 10,
-        FilterType::Nearest,
-    ); // scale the image down a good amount for distribution reasons.
-
-    scaled_full_map_image
-        .save("./output/all_regions_tenth.png")
-        .unwrap(); // save the scaled image down.
-
-    println!("Cropping full map image...");
-
-    // crop the image to the bounding box we calculate for the full image
-    let crop = find_bounding_box_for_map(&full_map_image);
-    let cropped_full_map_image =
-        imageops::crop_imm(&full_map_image, crop.0 .0, crop.0 .1, crop.1 .0, crop.1 .1).to_image();
-    cropped_full_map_image
-        .save("./output/cropped_all_regions_massive.png")
-        .unwrap();
-
-    println!("Scaling newly cropped image...");
-
-    let scaled_full_map_image = imageops::resize(
-        &cropped_full_map_image,
-        cropped_full_map_image.width() / 10,
-        cropped_full_map_image.height() / 10,
-        FilterType::Nearest,
-    ); // scale the image down a good amount for distribution reasons.
-
-    scaled_full_map_image
-        .save("./output/cropped_all_regions_tenth.png")
-        .unwrap();
-
-    println!("Done!");
-}
-
-fn region_file_to_file_name(region: &RegionFile) -> String {
-    format!("r.{}-{}.png", region.coordinate.0, region.coordinate.1)
 }
 
 /// type def for the hash map of textures and string
@@ -224,6 +226,7 @@ fn stitch_region_images(list: &Vec<RegionImage>) -> RgbImage {
     let height = region_image_size * (min_modifier_y.abs() + 1 + max_modifier_y.abs()) as i32;
 
     let mut img: RgbImage = ImageBuffer::new(width as u32, height as u32);
+    let mut stitched_images = 0;
 
     for region in list {
         let region_x = ((region.coordinate.0 * region_image_size) + min_coefficient_x) as usize;
@@ -238,6 +241,8 @@ fn stitch_region_images(list: &Vec<RegionImage>) -> RgbImage {
             let pixel_y = (region_y + y) as u32;
             img.put_pixel(pixel_x, pixel_y, color);
         }
+        stitched_images += 1;
+        println!("Stitch progres: {}/{}", stitched_images,list.len());
     }
     img
 }
