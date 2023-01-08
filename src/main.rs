@@ -9,6 +9,7 @@ use std::fs;
 use std::fs::File;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 struct BoundingBox((u32, u32), (u32, u32));
 
@@ -71,6 +72,7 @@ fn find_bounding_box_for_map(image: &RgbImage) -> BoundingBox {
 fn main() {
     // TODO: eventually prompt user for all these things instead of just expecting things to be in the right folder.
 
+
     let list = get_region_files("test/region");
     println!("Discovering texture files");
     let texture_list = get_texture_list();
@@ -109,6 +111,8 @@ fn main() {
         });
 
     println!("Stitching regions...");
+    let start = SystemTime::now();
+
     let full_map_image = stitch_region_images(&region_images.lock().unwrap()); // generate the full map image from all the region images
     full_map_image
         .save("./output/all_regions_massive.png")
@@ -116,6 +120,7 @@ fn main() {
     let full_map_width = full_map_image.width();
     let full_map_height = full_map_image.height();
 
+    println!("Stitch time: {:.2} seconds", SystemTime::now().duration_since(start).unwrap().as_secs_f32());
     println!("Finished stitching images, scaling image now...");
 
     let scaled_full_map_image = imageops::resize(
