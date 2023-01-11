@@ -11,9 +11,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+mod timer;
+
 struct BoundingBox((u32, u32), (u32, u32));
 
 fn main() {
+
     // TODO: eventually prompt user for all these things instead of just expecting things to be in the right folder.
 
     let list = get_region_files("test/region");
