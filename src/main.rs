@@ -58,14 +58,6 @@ fn main() {
 
     let full_map_image = stitch_region_images(&region_images.lock().unwrap()); // generate the full map image from all the region images
 
-    println!("Finished stitching images, saving image as file...");
-
-    full_map_image
-        .save("./output/all_regions_massive.png")
-        .unwrap(); // save the full map image to the system
-    let full_map_width = full_map_image.width();
-    let full_map_height = full_map_image.height();
-
     println!(
         "Stitch time: {:.2} seconds",
         SystemTime::now()
@@ -73,20 +65,8 @@ fn main() {
             .unwrap()
             .as_secs_f32()
     );
-    println!("Scaling image now...");
 
-    let scaled_full_map_image = imageops::resize(
-        &full_map_image,
-        full_map_width / 10,
-        full_map_height / 10,
-        FilterType::Nearest,
-    ); // scale the image down a good amount for distribution reasons.
-
-    scaled_full_map_image
-        .save("./output/all_regions_tenth.png")
-        .unwrap(); // save the scaled image down.
-
-    println!("Cropping full map image...");
+    println!("Cropping and saving full map image...");
 
     // crop the image to the bounding box we calculate for the full image
     let crop = find_bounding_box_for_map(&full_map_image);
@@ -96,12 +76,12 @@ fn main() {
         .save("./output/cropped_all_regions_massive.png")
         .unwrap();
 
-    println!("Scaling newly cropped image...");
+    println!("Scaling and saving newly cropped image...");
 
     let scaled_full_map_image = imageops::resize(
         &cropped_full_map_image,
-        cropped_full_map_image.width() / 10,
-        cropped_full_map_image.height() / 10,
+        cropped_full_map_image.width() / 8,
+        cropped_full_map_image.height() / 8,
         FilterType::Nearest,
     ); // scale the image down a good amount for distribution reasons.
 
@@ -270,13 +250,13 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
             let data = match region.read_chunk(chunk_x, chunk_y) {
                 Ok(r) => match r {
                     None => {
-                        images_of_chunks.push((RgbImage::new(256,256),chunk_x,chunk_y)); // if the region cant be read for any reason we return a black region image, could be done better i bet?
+                        images_of_chunks.push((RgbImage::new(256, 256), chunk_x, chunk_y)); // if the region cant be read for any reason we return a black region image, could be done better i bet?
                         continue; // early continue on this chunk because it contains no data
                     }
                     Some(vec) => vec,
                 },
                 Err(_) => {
-                    images_of_chunks.push((RgbImage::new(256,256),chunk_x,chunk_y)); // if the region cant be read for any reason we return a black region image, could be done better i bet?
+                    images_of_chunks.push((RgbImage::new(256, 256), chunk_x, chunk_y)); // if the region cant be read for any reason we return a black region image, could be done better i bet?
                     continue; // early continue on this chunk because it contains no data
                 }
             };
@@ -285,10 +265,9 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
 
             if chunk_result.is_err() {
                 // return ImageBuffer::new(8192, 8192);
-                images_of_chunks.push((RgbImage::new(256,256),chunk_x,chunk_y)); // if there is an error contained in the chunk data, we push a black image of said chunk instead, and early continue.
+                images_of_chunks.push((RgbImage::new(256, 256), chunk_x, chunk_y)); // if there is an error contained in the chunk data, we push a black image of said chunk instead, and early continue.
                 continue;
-            }
-            else {
+            } else {
                 // if the chunk is read properly, we render out an image of the chunk.
                 let chunk: CurrentJavaChunk = chunk_result.unwrap();
                 images_of_chunks.push(chunk_to_image(
@@ -299,7 +278,6 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
                     region_coords,
                 ));
             }
-
         }
     }
 
