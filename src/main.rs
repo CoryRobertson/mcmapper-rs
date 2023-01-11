@@ -66,7 +66,13 @@ fn main() {
     let full_map_width = full_map_image.width();
     let full_map_height = full_map_image.height();
 
-    println!("Stitch time: {:.2} seconds", SystemTime::now().duration_since(start_stitch_time).unwrap().as_secs_f32());
+    println!(
+        "Stitch time: {:.2} seconds",
+        SystemTime::now()
+            .duration_since(start_stitch_time)
+            .unwrap()
+            .as_secs_f32()
+    );
     println!("Scaling image now...");
 
     let scaled_full_map_image = imageops::resize(
@@ -212,21 +218,24 @@ fn get_texture_list() -> TextureListMap {
 
 /// Stitches region images together in a not super intelligent way.
 fn stitch_region_images(list: &Vec<RegionImage>) -> RgbImage {
-    let region_image_size = 8192;
+    let region_image_size = 8192; // pixel size of a region
 
-    let min_modifier_x = &list.iter().map(|ri| ri.coordinate.0).min().unwrap();
+    // get us the lowest and highest region coords
+    let min_modifier_x = &list.iter().map(|ri| ri.coordinate.0).min().unwrap(); // left most x coord for a region
     let min_modifier_y = &list.iter().map(|ri| ri.coordinate.1).min().unwrap();
-    let max_modifier_x = &list.iter().map(|ri| ri.coordinate.0).max().unwrap();
+    let max_modifier_x = &list.iter().map(|ri| ri.coordinate.0).max().unwrap(); // right most x coord for a region
     let max_modifier_y = &list.iter().map(|ri| ri.coordinate.1).max().unwrap();
 
-    let min_coefficient_x = (min_modifier_x * region_image_size).abs();
+    // turn the lowest region coords into offsets so we can center the images
+    let min_coefficient_x = (min_modifier_x * region_image_size).abs(); // modifier will look like a number from -32..=32 or so, so we multiply it by the region size and take abs value
     let min_coefficient_y = (min_modifier_y * region_image_size).abs();
 
+    // final size of the image, it will be larger than needed, but will be cropped later anyway. Making this smaller would be nice though.
     let width = region_image_size * (min_modifier_x.abs() + 1 + max_modifier_x.abs()) as i32;
     let height = region_image_size * (min_modifier_y.abs() + 1 + max_modifier_y.abs()) as i32;
 
-    let mut img: RgbImage = ImageBuffer::new(width as u32, height as u32);
-    let mut stitched_images = 0;
+    let mut img: RgbImage = ImageBuffer::new(width as u32, height as u32); // image to return to the function call
+    let mut stitched_images = 0; // count of how many regions have been stitched together, allowing for progress reporting.
 
     for region in list {
         let region_x = ((region.coordinate.0 * region_image_size) + min_coefficient_x) as usize;
@@ -242,7 +251,7 @@ fn stitch_region_images(list: &Vec<RegionImage>) -> RgbImage {
             img.put_pixel(pixel_x, pixel_y, color);
         }
         stitched_images += 1;
-        println!("Stitch progres: {}/{}", stitched_images,list.len());
+        println!("Stitch progres: {}/{}", stitched_images, list.len());
     }
     img
 }
@@ -255,34 +264,42 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
     let mut region = fastanvil::Region::from_stream(file).unwrap();
     let mut images_of_chunks: Vec<(RgbImage, usize, usize)> = vec![]; // image,x,y
 
+    // go through every possible chunk in a region file, which is 0..32 by 0..32
     for chunk_x in 0..32 {
         for chunk_y in 0..32 {
             let data = match region.read_chunk(chunk_x, chunk_y) {
                 Ok(r) => match r {
                     None => {
-                        return ImageBuffer::new(8192, 8192); // if the region cant be read for any reason we return a black region image, could be done better i bet?
+                        images_of_chunks.push((RgbImage::new(256,256),chunk_x,chunk_y)); // if the region cant be read for any reason we return a black region image, could be done better i bet?
+                        continue; // early continue on this chunk because it contains no data
                     }
                     Some(vec) => vec,
                 },
                 Err(_) => {
-                    return ImageBuffer::new(8192, 8192); // if the region cant be read for any reason we return a black region image, could be done better i bet?
+                    images_of_chunks.push((RgbImage::new(256,256),chunk_x,chunk_y)); // if the region cant be read for any reason we return a black region image, could be done better i bet?
+                    continue; // early continue on this chunk because it contains no data
                 }
             };
 
             let chunk_result = from_bytes(data.as_slice());
 
             if chunk_result.is_err() {
-                return ImageBuffer::new(8192, 8192);
+                // return ImageBuffer::new(8192, 8192);
+                images_of_chunks.push((RgbImage::new(256,256),chunk_x,chunk_y)); // if there is an error contained in the chunk data, we push a black image of said chunk instead, and early continue.
+                continue;
+            }
+            else {
+                // if the chunk is read properly, we render out an image of the chunk.
+                let chunk: CurrentJavaChunk = chunk_result.unwrap();
+                images_of_chunks.push(chunk_to_image(
+                    chunk,
+                    chunk_x,
+                    chunk_y,
+                    texture_list,
+                    region_coords,
+                ));
             }
 
-            let chunk: CurrentJavaChunk = chunk_result.unwrap();
-            images_of_chunks.push(chunk_to_image(
-                chunk,
-                chunk_x,
-                chunk_y,
-                texture_list,
-                region_coords,
-            ));
         }
     }
 
