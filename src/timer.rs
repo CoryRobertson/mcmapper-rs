@@ -1,19 +1,24 @@
 use std::time::{Duration, SystemTime};
 
+#[allow(dead_code)]
 pub struct Timer {
     start: SystemTime,
 }
 
+#[allow(dead_code)]
 impl Timer {
-
     /// Creates a new timer, with a start time of when it was created.
     pub fn new_timer() -> Timer {
-        Timer{ start: SystemTime::now() }
+        Timer {
+            start: SystemTime::now(),
+        }
     }
 
     /// Creates a new timer with a start time of the time provided.
     pub fn from_time(time: &SystemTime) -> Timer {
-        Timer{ start: time.clone() }
+        Timer {
+            start: time.clone(),
+        }
     }
 
     /// Reset the timer to now.
@@ -32,5 +37,4 @@ impl Timer {
         self.reset();
         out
     }
-
 }

@@ -1,3 +1,5 @@
+extern crate core;
+
 use fastanvil::{Block, Chunk, CurrentJavaChunk};
 use fastnbt::from_bytes;
 use image::imageops::FilterType;
@@ -5,21 +7,70 @@ use image::{imageops, DynamicImage, GenericImageView, ImageBuffer, Pixel, RgbIma
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::fs;
 use std::fs::File;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::SystemTime;
+use std::{env, fs};
 
 mod timer;
 
 struct BoundingBox((u32, u32), (u32, u32));
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
 
-    // TODO: eventually prompt user for all these things instead of just expecting things to be in the right folder.
+    // this might need improvement? Maybe prompt user using stdin?
+    let world_path: String = match args.get(1) {
+        None => {
+            println!("No region folder path given, running with default of \"test/region\" ");
+            if fs::read_dir("test/region").is_ok() {
+                "test/region".to_string()
+            } else {
+                panic!(
+                    "World path not found as command line args and no test world directory exists."
+                );
+            }
+        }
+        Some(path) => {
+            if fs::read_dir(path).is_ok() {
+                // path is valid directory
+                path.to_string()
+            } else {
+                panic!("World path found in args, but is not valid");
+            }
+        }
+    };
 
-    let list = get_region_files("test/region");
+    // checking if output dir exists, if not try to create it, if it cant, then panic the program.
+    match fs::read_dir("output") {
+        Ok(_) => {}
+        Err(err) => match fs::create_dir("output") {
+            Ok(_) => {}
+            Err(err2) => {
+                panic!(
+                    "Error, unable to read or create output directory. \n {} \n {}",
+                    err, err2
+                );
+            }
+        },
+    }
+
+    // check if assets folder is present, if not try to create it, and if that cant happen panic the program
+    match fs::read_dir("assets") {
+        Ok(_) => {}
+        Err(err) => {
+            match fs::create_dir("assets") {
+                Ok(_) => {}
+                Err(err2) => {
+                    panic!("Unable to create assets folder, missing permissions? Try making assets folder and putting minecraft block textures in it. {}", err2);
+                }
+            }
+            panic!("No assets folder present, please place minecraft assets in assets folder and run program again. {}", err);
+        }
+    }
+
+    let list = get_region_files(&world_path);
     println!("Discovering texture files");
     let texture_list = get_texture_list();
     for region_file in &list {
@@ -40,7 +91,7 @@ fn main() {
 
             region_image
                 .save(format!("./output/{}", file_name))
-                .unwrap(); // save the region image that was generated
+                .expect("Unable to save region image to system. Missing permissions?"); // save the region image that was generated
 
             region_images.lock().unwrap().push(RegionImage {
                 coordinate: region.coordinate,
@@ -77,7 +128,7 @@ fn main() {
         imageops::crop_imm(&full_map_image, crop.0 .0, crop.0 .1, crop.1 .0, crop.1 .1).to_image();
     cropped_full_map_image
         .save("./output/cropped_all_regions_massive.png")
-        .unwrap();
+        .expect("Unable to save image to system, missing permissions?");
 
     println!("Scaling and saving newly cropped image...");
 
@@ -90,7 +141,7 @@ fn main() {
 
     scaled_full_map_image
         .save("./output/cropped_all_regions_tenth.png")
-        .unwrap();
+        .expect("Unable to save image to system, missing permissions?");
 
     println!("Done!");
 }
@@ -160,7 +211,7 @@ type TextureListMap = HashMap<String, DynamicImage>;
 
 /// Returns a list of all the filenames in the assets folder hash mapped to the image data respective to that file name.
 fn get_texture_list() -> TextureListMap {
-    let dir = fs::read_dir("assets").unwrap();
+    let dir = fs::read_dir("assets").expect("Unable to read \"assets\" directory.");
     let list: Vec<String> = dir
         .into_iter()
         .filter_map(|file_in_dir| match file_in_dir {
@@ -244,7 +295,7 @@ fn region_to_image(region_selected: &RegionFile, texture_list: &TextureListMap) 
     let file = &region_selected.file;
     let region_coords = &region_selected.coordinate;
 
-    let mut region = fastanvil::Region::from_stream(file).unwrap();
+    let mut region = fastanvil::Region::from_stream(file).expect("Unable to stream region file.");
     let mut images_of_chunks: Vec<(RgbImage, usize, usize)> = vec![]; // image,x,y
 
     // go through every possible chunk in a region file, which is 0..32 by 0..32
@@ -344,7 +395,7 @@ fn chunk_to_image(
                         // #[cfg(debug_assertions)]
                         // println!("no texture for: {:?}, using error texture: \n", mc_block);
                         // panic!("unable to find texture, even after searched texture: {:?}", mc_block);
-                        texture_list.get("minecraft:error").unwrap()
+                        texture_list.get("minecraft:error").expect("Unable to get error texture, make sure error.png is present in the program.")
                     }
                     Some(tex) => {
                         // panic!("unable to find texture, found searched texture: {:?}", mc_block);
@@ -427,7 +478,8 @@ impl Display for RegionFile {
 /// Get all region files contained within a directory, output a vector full of the file handles and their region coordinates.
 /// e.g. r.0.-1.mca becomes a file header to that file, and a chunk coordinate of 0,-1
 fn get_region_files(path: &str) -> Vec<RegionFile> {
-    let dir = fs::read_dir(path).unwrap();
+    let dir = fs::read_dir(path)
+        .expect("Unable to read region file directory, check file permissions and that it exists.");
     let list: Vec<RegionFile> = dir
         .into_iter()
         .filter_map(|file_in_dir| match file_in_dir {
@@ -447,7 +499,11 @@ fn get_region_files(path: &str) -> Vec<RegionFile> {
                 .collect();
 
             let coord: ChunkCoordinate =
-                ChunkCoordinate(*coords.first().unwrap(), *coords.get(1).unwrap());
+                ChunkCoordinate(*coords.first()
+                    .expect("Unable to find coordinate of region file, make sure region folder inside world only contains region files. \
+                    Issue could also occur because the program was pointed to a world folder and not the region folder inside the world folder.\
+                    E.g. run program like mcmapper-rs <world name>/region"),
+                                *coords.get(1).unwrap());
 
             match File::open(file_dir_entry.path()) {
                 Ok(f) => Some(RegionFile {
@@ -463,5 +519,6 @@ fn get_region_files(path: &str) -> Vec<RegionFile> {
 }
 
 fn read_texture_from_texture_name(file: String) -> DynamicImage {
-    image::open(file).unwrap()
+    image::open(file)
+        .expect("Unable to read file name as an image, check that textures are valid png images.")
 }
