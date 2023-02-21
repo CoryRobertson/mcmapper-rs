@@ -8,16 +8,16 @@ pub struct Timer {
 #[allow(dead_code)]
 impl Timer {
     /// Creates a new timer, with a start time of when it was created.
-    pub fn new_timer() -> Timer {
-        Timer {
+    pub fn new_timer() -> Self {
+        Self {
             start: SystemTime::now(),
         }
     }
 
     /// Creates a new timer with a start time of the time provided.
-    pub fn from_time(time: &SystemTime) -> Timer {
-        Timer {
-            start: time.clone(),
+    pub const fn from_time(time: &SystemTime) -> Self {
+        Self {
+            start: *time,
         }
     }
 
